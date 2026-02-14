@@ -1,0 +1,184 @@
+{
+  "name": "opencode-acp-chat",
+  "displayName": "OpenCode ACP Chat",
+  "description": "Pleasant ACP chat client for OpenCode in VS Code",
+  "version": "0.0.1",
+  "publisher": "local",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/opencode/opencode-acp-chat"
+  },
+  "engines": {
+    "vscode": "^1.105.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "keywords": [
+    "acp",
+    "opencode",
+    "ai",
+    "chat",
+    "agent"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onView:opencodeAcp.chatView",
+    "onCommand:opencodeAcp.connect",
+    "onCommand:opencodeAcp.newSession",
+    "onCommand:opencodeAcp.cancel",
+    "onCommand:opencodeAcp.clear"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "opencodeAcp",
+          "title": "OpenCode ACP",
+          "icon": "resources/opencode-logo-light.svg"
+        }
+      ]
+    },
+    "views": {
+      "opencodeAcp": [
+        {
+          "id": "opencodeAcp.chatView",
+          "name": "Chat",
+          "type": "webview"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "opencodeAcp.chatView",
+        "contents": "[Connect to OpenCode](command:opencodeAcp.connect)"
+      }
+    ],
+    "commands": [
+      {
+        "command": "opencodeAcp.connect",
+        "title": "OpenCode ACP: Connect",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "opencodeAcp.newSession",
+        "title": "OpenCode ACP: New Session",
+        "icon": "$(add)"
+      },
+      {
+        "command": "opencodeAcp.cancel",
+        "title": "OpenCode ACP: Cancel Turn",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "opencodeAcp.clear",
+        "title": "OpenCode ACP: Clear Chat",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "opencodeAcp.showLog",
+        "title": "OpenCode ACP: Show Logs"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "opencodeAcp.connect",
+          "when": "view == opencodeAcp.chatView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "opencodeAcp.newSession",
+          "when": "view == opencodeAcp.chatView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "opencodeAcp.cancel",
+          "when": "view == opencodeAcp.chatView",
+          "group": "navigation@3"
+        },
+        {
+          "command": "opencodeAcp.clear",
+          "when": "view == opencodeAcp.chatView",
+          "group": "navigation@4"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "OpenCode ACP Chat",
+      "properties": {
+        "opencodeAcp.command": {
+          "type": "string",
+          "default": "opencode",
+          "description": "Command used to launch ACP agent"
+        },
+        "opencodeAcp.args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "acp"
+          ],
+          "description": "Arguments passed to ACP command"
+        },
+        "opencodeAcp.cwd": {
+          "type": "string",
+          "default": "",
+          "description": "Working directory for ACP process. Empty uses current workspace folder"
+        },
+        "opencodeAcp.env": {
+          "type": "object",
+          "default": {},
+          "description": "Environment variables passed to ACP process"
+        },
+        "opencodeAcp.autoConnect": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-connect when chat view opens"
+        },
+        "opencodeAcp.permissionMode": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "allowAll"
+          ],
+          "default": "ask",
+          "description": "Tool permission behavior for ACP requests"
+        },
+        "opencodeAcp.logTraffic": {
+          "type": "boolean",
+          "default": false,
+          "description": "Log ACP protocol traffic and stderr in output channel"
+        },
+        "opencodeAcp.defaultModel": {
+          "type": "string",
+          "default": "opencode",
+          "description": "Preferred default model (exact or partial modelId/name match). Applied when a new session starts"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "compile": "npm run typecheck && node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "build": "npm run typecheck && node esbuild.js --production",
+    "package:vsix": "npm run build && npx @vscode/vsce package",
+    "package": "npm run package:vsix",
+    "vscode:prepublish": "npm run build"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "^0.14.1",
+    "marked": "^17.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "@types/vscode": "1.105.0",
+    "@vscode/vsce": "^3.7.1",
+    "esbuild": "^0.27.3",
+    "typescript": "^5.9.3"
+  }
+}
