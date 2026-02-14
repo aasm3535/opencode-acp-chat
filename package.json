@@ -3,11 +3,16 @@
   "displayName": "OpenCode ACP Chat",
   "description": "Pleasant ACP chat client for OpenCode in VS Code",
   "version": "0.0.1",
-  "publisher": "local",
+  "publisher": "aasm3535",
   "license": "MIT",
+  "icon": "resources/icon.png",
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/opencode/opencode-acp-chat"
+    "url": "https://github.com/aasm3535/opencode-acp-chat"
   },
   "engines": {
     "vscode": "^1.105.0"
@@ -16,6 +21,7 @@
     "AI",
     "Chat"
   ],
+  "pricing": "Free",
   "keywords": [
     "acp",
     "opencode",
