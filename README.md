@@ -2,6 +2,8 @@
 
 <div align="center">
 
+<img src="resources/icon.png" alt="OpenCode ACP Chat" width="128">
+
 **A polished ACP chat client for OpenCode in Visual Studio Code**
 
 [![Version](https://img.shields.io/badge/version-0.0.1-blue.svg)](https://github.com/yourusername/opencode-vsc)
