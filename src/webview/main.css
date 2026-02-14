@@ -58,9 +58,27 @@ body {
 
 #app {
   display: grid;
-  grid-template-rows: 1fr auto;
+  grid-template-rows: auto 1fr auto;
   gap: 10px;
   padding: 8px;
+}
+
+.chat-header {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0;
+}
+
+.chats-link {
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  user-select: none;
+  transition: color 120ms ease;
+}
+
+.chats-link:hover {
+  color: var(--text);
 }
 
 .messages {
@@ -742,6 +760,46 @@ body {
 .dropdown-trigger:focus-visible,
 .send-btn:focus-visible {
   outline: none;
+}
+
+.chats-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.empty-chats {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.chat-item {
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--panel-bg);
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.chat-item:hover {
+  border-color: #506890;
+  background: #262626;
+}
+
+.chat-title {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  margin-bottom: 2px;
+}
+
+.chat-meta {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 @keyframes thought-shimmer {

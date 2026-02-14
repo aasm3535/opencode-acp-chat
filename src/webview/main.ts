@@ -48,6 +48,18 @@ const messagesEl = document.getElementById("messages") as HTMLDivElement;
 const promptInput = document.getElementById("promptInput") as HTMLTextAreaElement;
 const composerEl = document.getElementById("composer") as HTMLFormElement;
 const sendBtn = document.getElementById("sendBtn") as HTMLButtonElement;
+const chatsLink = document.getElementById("chatsLink") as HTMLSpanElement;
+
+interface ChatMetadata {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  sessionId?: string;
+}
+
+let chatsList: ChatMetadata[] = [];
+let showingChats = false;
 
 const modeDropdown = document.getElementById("modeDropdown") as HTMLDivElement;
 const modeTrigger = document.getElementById("modeTrigger") as HTMLButtonElement;
@@ -682,6 +694,70 @@ function resetChat(): void {
   assistantLastActivity = "none";
 }
 
+function showChatTimestamp(timestamp: number): string {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  
+  if (diffMins < 1) return "Just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+  
+  return date.toLocaleDateString();
+}
+
+function renderChatsList(): void {
+  resetChat();
+  
+  if (chatsList.length === 0) {
+    messagesEl.innerHTML = `<div class="empty-chats"><p>No chats yet. Start a conversation!</p></div>`;
+    return;
+  }
+  
+  const container = document.createElement("div");
+  container.className = "chats-list";
+  
+  for (const chat of chatsList) {
+    const chatEl = document.createElement("div");
+    chatEl.className = "chat-item";
+    chatEl.dataset.chatId = chat.id;
+    
+    const title = document.createElement("div");
+    title.className = "chat-title";
+    title.textContent = chat.title;
+    
+    const meta = document.createElement("div");
+    meta.className = "chat-meta";
+    meta.textContent = showChatTimestamp(chat.updatedAt);
+    
+    chatEl.appendChild(title);
+    chatEl.appendChild(meta);
+    
+    chatEl.addEventListener("click", () => {
+      vscode.postMessage({ type: "switchChat", chatId: chat.id });
+    });
+    
+    container.appendChild(chatEl);
+  }
+  
+  messagesEl.appendChild(container);
+  chatsLink.textContent = "Back to chat";
+}
+
+function appendHistoryMessage(role: "user" | "assistant", content: string, timestamp: number): void {
+  const el = document.createElement("div");
+  el.className = `message ${role}`;
+  el.textContent = content;
+  messagesEl.appendChild(el);
+  scrollToBottom();
+}
+
 function sendPrompt(): void {
   if (processing) {
     requestCancel();
@@ -1034,6 +1110,26 @@ window.addEventListener("message", (event: MessageEvent<Record<string, unknown>>
       resetChat();
       break;
     }
+    case "chatListUpdated": {
+      chatsList = message.chats as ChatMetadata[];
+      break;
+    }
+    case "chatLoaded": {
+      if (showingChats) {
+        showingChats = false;
+        resetChat();
+      }
+      chatsLink.textContent = "View chats";
+      break;
+    }
+    case "chatHistoryMessage": {
+      appendHistoryMessage(
+        message.role as "user" | "assistant",
+        String(message.content),
+        Number(message.timestamp)
+      );
+      break;
+    }
     case "error": {
       stopThoughtRevealTimer();
       stopThoughtTimer();
@@ -1042,6 +1138,7 @@ window.addEventListener("message", (event: MessageEvent<Record<string, unknown>>
       appendBubble("error", String(message.message ?? "Unknown error"));
       break;
     }
+    case "connected":
     default:
       break;
   }
@@ -1086,6 +1183,18 @@ messagesEl.addEventListener("click", (event) => {
 
   const expanded = thoughtToggle.getAttribute("aria-expanded") === "true";
   setThoughtExpanded(message, !expanded);
+});
+
+chatsLink.addEventListener("click", () => {
+  if (showingChats) {
+    showingChats = false;
+    resetChat();
+    chatsLink.textContent = "View chats";
+  } else {
+    showingChats = true;
+    vscode.postMessage({ type: "loadChatHistory" });
+    renderChatsList();
+  }
 });
 
 window.addEventListener("keydown", (event) => {

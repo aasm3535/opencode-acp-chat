@@ -1,6 +1,13 @@
 import * as vscode from "vscode";
 import type { SessionNotification } from "@agentclientprotocol/sdk";
 import { AcpClient } from "../acp/AcpClient";
+import { SessionStorage } from "../storage/SessionStorage";
+
+interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  timestamp: number;
+}
 
 type WebviewIncomingMessage =
   | { type: "ready" }
@@ -11,7 +18,10 @@ type WebviewIncomingMessage =
   | { type: "clear" }
   | { type: "setMode"; modeId: string }
   | { type: "setModel"; modelId: string }
-  | { type: "showLogs" };
+  | { type: "showLogs" }
+  | { type: "loadChatHistory" }
+  | { type: "switchChat"; chatId: string }
+  | { type: "deleteChat"; chatId: string };
 
 export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   public static readonly viewType = "opencodeAcp.chatView";
@@ -19,11 +29,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   private view: vscode.WebviewView | undefined;
   private promptInFlight = false;
   private readonly disposables: vscode.Disposable[] = [];
+  private storage: SessionStorage;
+  private currentChatId: string | null = null;
+  private chatMessages: ChatMessage[] = [];
+  private chatTitle: string = "";
 
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly acp: AcpClient
   ) {
+    this.storage = new SessionStorage();
     this.disposables.push(
       this.acp.onDidStateChange((state) => {
         this.post({ type: "connectionState", state });
@@ -63,10 +78,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   public async connect(): Promise<void> {
     try {
       await this.acp.connect();
-      if (!this.acp.currentSessionId) {
+      if (!this.currentChatId) {
+        const { id, title } = await this.storage.createChat(this.acp.currentSessionId ?? undefined);
+        this.currentChatId = id;
+        this.chatTitle = title;
+        this.chatMessages = [];
+      } else if (!this.acp.currentSessionId) {
         await this.acp.newSession();
       }
       this.post({ type: "connected", sessionId: this.acp.currentSessionId });
+      this.post({ type: "chatLoaded", chatId: this.currentChatId, title: this.chatTitle });
     } catch (error) {
       this.post({ type: "error", message: this.toError(error) });
     }
@@ -75,12 +96,90 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   public async newSession(): Promise<void> {
     try {
       await this.acp.connect();
-      await this.acp.newSession();
+      
+      if (this.currentChatId && this.chatMessages.length > 0) {
+        await this.saveCurrentChat();
+      }
+      
+      const { id, title } = await this.storage.createChat();
+      this.currentChatId = id;
+      this.chatTitle = title;
+      this.chatMessages = [];
       this.post({ type: "chatReset" });
+      this.post({ type: "chatLoaded", chatId: id, title });
+      
+      await this.acp.newSession();
       this.post({ type: "connected", sessionId: this.acp.currentSessionId });
     } catch (error) {
       this.post({ type: "error", message: this.toError(error) });
     }
+  }
+
+  public async switchChat(chatId: string): Promise<void> {
+    try {
+      if (this.currentChatId && this.chatMessages.length > 0) {
+        await this.saveCurrentChat();
+      }
+
+      const chat = await this.storage.loadChat(chatId);
+      if (!chat) {
+        this.post({ type: "error", message: "Chat not found" });
+        return;
+      }
+
+      this.currentChatId = chat.id;
+      this.chatTitle = chat.title;
+      this.chatMessages = chat.messages;
+
+      this.post({ type: "chatReset" });
+      
+      for (const msg of chat.messages) {
+        this.post({ type: "chatHistoryMessage", role: msg.role, content: msg.content, timestamp: msg.timestamp });
+      }
+
+      this.post({ type: "chatLoaded", chatId: chat.id, title: chat.title });
+
+      if (chat.sessionId) {
+        await this.acp.connect();
+      }
+    } catch (error) {
+      this.post({ type: "error", message: this.toError(error) });
+    }
+  }
+
+  public async deleteChat(chatId: string): Promise<void> {
+    try {
+      if (chatId === this.currentChatId) {
+        await this.newSession();
+      }
+      await this.storage.deleteChat(chatId);
+      const chats = await this.storage.loadChatMetadata();
+      this.post({ type: "chatListUpdated", chats });
+    } catch (error) {
+      this.post({ type: "error", message: this.toError(error) });
+    }
+  }
+
+  public async loadChatHistory(): Promise<void> {
+    try {
+      const chats = await this.storage.loadChatMetadata();
+      this.post({ type: "chatListUpdated", chats });
+    } catch (error) {
+      this.post({ type: "error", message: this.toError(error) });
+    }
+  }
+
+  private async saveCurrentChat(): Promise<void> {
+    if (!this.currentChatId) return;
+
+    await this.storage.saveChat({
+      id: this.currentChatId,
+      title: this.chatTitle,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      sessionId: this.acp.currentSessionId ?? undefined,
+      messages: this.chatMessages
+    });
   }
 
   public async cancel(): Promise<void> {
@@ -105,6 +204,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.post({ type: "connectionState", state: this.acp.connectionState });
         this.post({ type: "metadata", metadata: this.acp.sessionMetadata });
         this.post({ type: "connected", sessionId: this.acp.currentSessionId });
+        await this.loadChatHistory();
+        if (this.currentChatId) {
+          this.post({ type: "chatLoaded", chatId: this.currentChatId, title: this.chatTitle });
+        }
         break;
       }
       case "connect": {
@@ -113,6 +216,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       }
       case "newSession": {
         await this.newSession();
+        break;
+      }
+      case "switchChat": {
+        await this.switchChat(message.chatId);
+        break;
+      }
+      case "deleteChat": {
+        await this.deleteChat(message.chatId);
+        break;
+      }
+      case "loadChatHistory": {
+        await this.loadChatHistory();
         break;
       }
       case "cancel": {
@@ -161,6 +276,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       return;
     }
 
+    if (!this.currentChatId) {
+      const { id, title } = await this.storage.createChat(this.acp.currentSessionId ?? undefined);
+      this.currentChatId = id;
+      this.chatTitle = title;
+    }
+
+    this.chatMessages.push({ role: "user", content: trimmed, timestamp: Date.now() });
+    if (this.chatMessages.length === 1) {
+      this.chatTitle = trimmed.substring(0, 50) + (trimmed.length > 50 ? "..." : "");
+      this.post({ type: "chatLoaded", chatId: this.currentChatId, title: this.chatTitle });
+    }
+
     this.promptInFlight = true;
     this.post({ type: "promptStart" });
 
@@ -177,11 +304,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         : trimmed;
 
       const response = await this.acp.sendPrompt(prompt);
+      
       this.post({
         type: "promptEnd",
         stopReason: response.stopReason,
         usage: response.usage ?? null
       });
+      
+      await this.saveCurrentChat();
     } catch (error) {
       this.post({ type: "error", message: this.toError(error) });
       this.post({ type: "promptEnd", stopReason: "error" });
@@ -248,6 +378,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   </head>
   <body>
     <div id="app">
+      <div id="chatHeader" class="chat-header">
+        <span id="chatsLink" class="chats-link">View chats</span>
+      </div>
       <main id="messages" class="messages"></main>
 
       <form id="composer" class="composer" novalidate>
@@ -263,7 +396,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     <span id="modeValue">Build</span>
                   </span>
                   <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="m6 9 6 6 6-6"></path>
+                    <path d="m6 9 6 6 6-9"></path>
                   </svg>
                 </button>
                 <div id="modeMenu" class="dropdown-menu" role="listbox" aria-label="Mode"></div>
@@ -274,7 +407,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                   <span class="model-label">Model</span>
                   <span id="modelValue" class="model-value">auto</span>
                   <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="m6 9 6 6 6-6"></path>
+                    <path d="m6 9 6 6 6-9"></path>
                   </svg>
                 </button>
                 <div id="modelMenu" class="dropdown-menu model-menu" role="listbox" aria-label="Model"></div>
