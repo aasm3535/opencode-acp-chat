@@ -21,7 +21,8 @@ type WebviewIncomingMessage =
   | { type: "showLogs" }
   | { type: "loadChatHistory" }
   | { type: "switchChat"; chatId: string }
-  | { type: "deleteChat"; chatId: string };
+  | { type: "deleteChat"; chatId: string }
+  | { type: "clearAllChats" };
 
 export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   public static readonly viewType = "opencodeAcp.chatView";
@@ -33,6 +34,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   private currentChatId: string | null = null;
   private chatMessages: ChatMessage[] = [];
   private chatTitle: string = "";
+  private currentChatCreatedAt = 0;
+  private assistantResponseBuffer = "";
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -77,49 +80,59 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
   public async connect(): Promise<void> {
     try {
-      await this.acp.connect();
+      await this.ensureConnectedSession();
 
       if (!this.currentChatId) {
-        const { id, title } = await this.storage.createChat(this.acp.currentSessionId ?? undefined);
-        this.currentChatId = id;
-        this.chatTitle = title;
-        this.chatMessages = [];
-      }
-
-      if (!this.acp.currentSessionId) {
-        await this.acp.newSession();
+        await this.loadLatestChatFromStorage();
       }
 
       this.post({ type: "connected", sessionId: this.acp.currentSessionId });
-      this.post({ type: "chatLoaded", chatId: this.currentChatId, title: this.chatTitle });
+      if (this.currentChatId) {
+        this.publishCurrentChat();
+      } else {
+        this.post({ type: "chatReset" });
+      }
     } catch (error) {
       this.post({ type: "error", message: this.toError(error) });
     }
   }
 
   public async newSession(): Promise<void> {
+    if (this.promptInFlight) {
+      this.post({ type: "error", message: "Cannot start a new session while a response is running." });
+      return;
+    }
+
     try {
-      await this.acp.connect();
+      if (this.acp.connectionState !== "connected") {
+        await this.acp.connect();
+      }
       
       if (this.currentChatId && this.chatMessages.length > 0) {
         await this.saveCurrentChat();
       }
       
-      const { id, title } = await this.storage.createChat();
-      this.currentChatId = id;
-      this.chatTitle = title;
+      await this.ensureConnectedSession(true);
+
+      this.currentChatId = null;
+      this.chatTitle = "";
+      this.currentChatCreatedAt = 0;
       this.chatMessages = [];
+      this.assistantResponseBuffer = "";
       this.post({ type: "chatReset" });
-      this.post({ type: "chatLoaded", chatId: id, title });
-      
-      await this.acp.newSession();
       this.post({ type: "connected", sessionId: this.acp.currentSessionId });
+      await this.loadChatHistory();
     } catch (error) {
       this.post({ type: "error", message: this.toError(error) });
     }
   }
 
   public async switchChat(chatId: string): Promise<void> {
+    if (this.promptInFlight) {
+      this.post({ type: "error", message: "Cannot switch chats while a response is running." });
+      return;
+    }
+
     try {
       if (this.currentChatId && this.chatMessages.length > 0) {
         await this.saveCurrentChat();
@@ -133,25 +146,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
       this.currentChatId = chat.id;
       this.chatTitle = chat.title;
-      this.chatMessages = chat.messages;
+      this.currentChatCreatedAt = chat.createdAt;
+      this.chatMessages = [...chat.messages];
+      this.assistantResponseBuffer = "";
 
-      this.post({ type: "chatReset" });
-      
-      for (const msg of chat.messages) {
-        this.post({ type: "chatHistoryMessage", role: msg.role, content: msg.content, timestamp: msg.timestamp });
-      }
+      await this.ensureConnectedSession(true);
 
-      this.post({ type: "chatLoaded", chatId: chat.id, title: chat.title });
-
-      if (chat.sessionId) {
-        await this.acp.connect();
-      }
+      this.publishCurrentChat();
     } catch (error) {
       this.post({ type: "error", message: this.toError(error) });
     }
   }
 
   public async deleteChat(chatId: string): Promise<void> {
+    if (this.promptInFlight) {
+      this.post({ type: "error", message: "Cannot delete chats while a response is running." });
+      return;
+    }
+
     try {
       if (chatId === this.currentChatId) {
         await this.newSession();
@@ -159,6 +171,37 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       await this.storage.deleteChat(chatId);
       const chats = await this.storage.loadChatMetadata();
       this.post({ type: "chatListUpdated", chats });
+    } catch (error) {
+      this.post({ type: "error", message: this.toError(error) });
+    }
+  }
+
+  public async clearAllChats(): Promise<void> {
+    if (this.promptInFlight) {
+      this.post({ type: "error", message: "Cannot clear chats while a response is running." });
+      return;
+    }
+
+    try {
+      await this.storage.clearAllChats();
+
+      this.currentChatId = null;
+      this.chatTitle = "";
+      this.currentChatCreatedAt = 0;
+      this.chatMessages = [];
+      this.assistantResponseBuffer = "";
+      this.post({ type: "chatReset" });
+      const chats = await this.storage.loadChatMetadata();
+      this.post({ type: "chatListUpdated", chats });
+
+      if (this.acp.connectionState === "connected") {
+        try {
+          await this.ensureConnectedSession(true);
+          this.post({ type: "connected", sessionId: this.acp.currentSessionId });
+        } catch (error) {
+          this.post({ type: "error", message: `Chats were cleared, but session reset failed: ${this.toError(error)}` });
+        }
+      }
     } catch (error) {
       this.post({ type: "error", message: this.toError(error) });
     }
@@ -176,14 +219,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   private async saveCurrentChat(): Promise<void> {
     if (!this.currentChatId) return;
 
+    const createdAt = this.currentChatCreatedAt || Date.now();
+    const updatedAt = Date.now();
     await this.storage.saveChat({
       id: this.currentChatId,
       title: this.chatTitle,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      createdAt,
+      updatedAt,
       sessionId: this.acp.currentSessionId ?? undefined,
       messages: this.chatMessages
     });
+    this.currentChatCreatedAt = createdAt;
   }
 
   public async cancel(): Promise<void> {
@@ -195,7 +241,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   }
 
   public clear(): void {
+    this.chatMessages = [];
+    this.assistantResponseBuffer = "";
     this.post({ type: "chatReset" });
+    if (this.currentChatId) {
+      void this.saveCurrentChat();
+    }
   }
 
   public showLogs(): void {
@@ -210,7 +261,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.post({ type: "connected", sessionId: this.acp.currentSessionId });
         await this.loadChatHistory();
         if (this.currentChatId) {
-          this.post({ type: "chatLoaded", chatId: this.currentChatId, title: this.chatTitle });
+          this.publishCurrentChat();
+        } else {
+          this.post({ type: "chatReset" });
         }
         break;
       }
@@ -240,6 +293,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       }
       case "clear": {
         this.clear();
+        break;
+      }
+      case "clearAllChats": {
+        await this.clearAllChats();
         break;
       }
       case "setMode": {
@@ -281,9 +338,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
 
     if (!this.currentChatId) {
-      const { id, title } = await this.storage.createChat(this.acp.currentSessionId ?? undefined);
+      const { id, title, createdAt } = await this.storage.createChat(this.acp.currentSessionId ?? undefined);
       this.currentChatId = id;
       this.chatTitle = title;
+      this.currentChatCreatedAt = createdAt;
+      await this.loadChatHistory();
     }
 
     this.chatMessages.push({ role: "user", content: trimmed, timestamp: Date.now() });
@@ -293,19 +352,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
 
     this.promptInFlight = true;
+    this.assistantResponseBuffer = "";
     this.post({ type: "promptStart" });
 
     try {
-      if (this.acp.connectionState !== "connected") {
-        await this.acp.connect();
-      }
-      if (!this.acp.currentSessionId) {
-        await this.acp.newSession();
-      }
+      await this.ensureConnectedSession();
 
-      const prompt = includeSelection
+      const promptBase = includeSelection
         ? this.withSelectionContext(trimmed)
         : trimmed;
+      const history = this.chatMessages.slice(0, -1);
+      const prompt = this.withChatHistoryContext(promptBase, history);
 
       const response = await this.acp.sendPrompt(prompt);
       
@@ -314,14 +371,85 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         stopReason: response.stopReason,
         usage: response.usage ?? null
       });
+
+      this.flushAssistantResponseToHistory();
       
       await this.saveCurrentChat();
+      await this.loadChatHistory();
     } catch (error) {
+      this.flushAssistantResponseToHistory();
       this.post({ type: "error", message: this.toError(error) });
       this.post({ type: "promptEnd", stopReason: "error" });
+      await this.saveCurrentChat();
+      await this.loadChatHistory();
     } finally {
+      this.assistantResponseBuffer = "";
       this.promptInFlight = false;
     }
+  }
+
+  private async loadLatestChatFromStorage(): Promise<void> {
+    const metadata = await this.storage.loadChatMetadata();
+    const latest = metadata[0];
+    if (!latest) {
+      this.currentChatId = null;
+      this.chatTitle = "";
+      this.currentChatCreatedAt = 0;
+      this.chatMessages = [];
+      return;
+    }
+
+    const chat = await this.storage.loadChat(latest.id);
+    if (!chat) {
+      this.currentChatId = null;
+      this.chatTitle = "";
+      this.currentChatCreatedAt = 0;
+      this.chatMessages = [];
+      return;
+    }
+
+    this.currentChatId = chat.id;
+    this.chatTitle = chat.title;
+    this.currentChatCreatedAt = chat.createdAt;
+    this.chatMessages = [...chat.messages];
+  }
+
+  private flushAssistantResponseToHistory(): void {
+    const text = this.assistantResponseBuffer;
+    if (!text.trim()) {
+      return;
+    }
+    this.chatMessages.push({ role: "assistant", content: text, timestamp: Date.now() });
+    this.assistantResponseBuffer = "";
+  }
+
+  private withChatHistoryContext(prompt: string, history: ChatMessage[]): string {
+    if (!history.length) {
+      return prompt;
+    }
+
+    if (prompt.trimStart().startsWith("/")) {
+      return prompt;
+    }
+
+    const maxMessages = 24;
+    const clippedHistory = history.slice(-maxMessages);
+    const lines = clippedHistory.map((message) => {
+      const role = message.role === "user" ? "User" : "Assistant";
+      const normalized = message.content.replace(/\s+/g, " ").trim();
+      const clipped = normalized.length > 1200 ? `${normalized.slice(0, 1200)}...` : normalized;
+      return `${role}: ${clipped}`;
+    });
+
+    return [
+      "Keep continuity with the ongoing chat history below.",
+      "",
+      "Chat history:",
+      ...lines,
+      "",
+      "Now answer this new user message:",
+      prompt
+    ].join("\n");
   }
 
   private withSelectionContext(prompt: string): string {
@@ -352,11 +480,60 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   }
 
   private handleSessionUpdate(notification: SessionNotification): void {
+    const update = notification.update as { sessionUpdate?: string; [key: string]: unknown };
+    if (update.sessionUpdate === "agent_message_chunk") {
+      const text = this.extractChunkText(update);
+      if (text) {
+        this.assistantResponseBuffer += text;
+      }
+    }
+
     this.post({
       type: "sessionUpdate",
       sessionId: notification.sessionId,
       update: notification.update
     });
+  }
+
+  private publishCurrentChat(): void {
+    if (!this.currentChatId) {
+      return;
+    }
+
+    this.post({ type: "chatReset" });
+    for (const message of this.chatMessages) {
+      this.post({ type: "chatHistoryMessage", role: message.role, content: message.content, timestamp: message.timestamp });
+    }
+    this.post({ type: "chatLoaded", chatId: this.currentChatId, title: this.chatTitle });
+  }
+
+  private extractChunkText(update: { content?: unknown; text?: unknown; [key: string]: unknown }): string {
+    if (typeof update.text === "string") {
+      return update.text;
+    }
+
+    if (typeof update.content === "string") {
+      return update.content;
+    }
+
+    if (update.content && typeof update.content === "object") {
+      const content = update.content as { text?: unknown };
+      if (typeof content.text === "string") {
+        return content.text;
+      }
+    }
+
+    return "";
+  }
+
+  private async ensureConnectedSession(forceNewSession = false): Promise<void> {
+    if (this.acp.connectionState !== "connected") {
+      await this.acp.connect();
+    }
+
+    if (forceNewSession || !this.acp.currentSessionId) {
+      await this.acp.newSession();
+    }
   }
 
   private post(payload: Record<string, unknown>): void {

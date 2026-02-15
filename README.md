@@ -6,7 +6,7 @@
 
 **A polished ACP chat client for OpenCode in Visual Studio Code**
 
-[![Version](https://img.shields.io/badge/version-0.0.2-blue.svg)](https://github.com/yourusername/opencode-vsc)
+[![Version](https://img.shields.io/badge/version-0.0.3-blue.svg)](https://github.com/yourusername/opencode-vsc)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.105.0%2B-blue.svg)](https://code.visualstudio.com/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9.3-blue.svg)](https://www.typescriptlang.org/)
@@ -49,7 +49,7 @@
 ### From VSIX Package
 
 ```bash
-code --install-extension opencode-acp-chat-0.0.2.vsix
+code --install-extension opencode-acp-chat-0.0.3.vsix
 ```
 
 ## Quick Start

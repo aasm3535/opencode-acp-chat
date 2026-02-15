@@ -104,6 +104,27 @@ body {
   transition: color 120ms ease;
 }
 
+.clear-chats-link {
+  color: #b08a8f;
+  font-size: 11px;
+  cursor: pointer;
+  user-select: none;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  padding: 0;
+  transition: color 120ms ease, opacity 120ms ease;
+}
+
+.clear-chats-link:hover:not(:disabled) {
+  color: #d8a5ad;
+}
+
+.clear-chats-link:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .chats-link:hover {
   color: var(--text);
 }

@@ -963,6 +963,29 @@ export function App({ vscode }: AppProps): React.JSX.Element {
           title={connectionState}
           aria-label={`Connection ${connectionState}`}
         />
+        {showingChats ? (
+          <button
+            type="button"
+            className="clear-chats-link"
+            disabled={processing || chatsList.length === 0}
+            onClick={() => {
+              if (chatsList.length === 0) {
+                return;
+              }
+              const confirmed = window.confirm("Clear all chat history? This cannot be undone.");
+              if (!confirmed) {
+                return;
+              }
+              stopAllTimers();
+              activeAssistantIdRef.current = null;
+              setTimeline([]);
+              setChatsList([]);
+              post({ type: "clearAllChats" });
+            }}
+          >
+            Clear all
+          </button>
+        ) : null}
         <button
           id="chatsLink"
           type="button"

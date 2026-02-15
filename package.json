@@ -2,7 +2,7 @@
   "name": "opencode-acp-chat",
   "displayName": "OpenCode ACP Chat",
   "description": "Pleasant ACP chat client for OpenCode in VS Code",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "publisher": "aasm3535",
   "license": "MIT",
   "icon": "resources/icon.png",

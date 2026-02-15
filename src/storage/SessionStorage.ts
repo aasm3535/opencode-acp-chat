@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 
-interface ChatMetadata {
+export interface ChatMetadata {
   id: string;
   title: string;
   createdAt: number;
@@ -11,7 +11,7 @@ interface ChatMetadata {
   sessionId?: string;
 }
 
-interface ChatData extends ChatMetadata {
+export interface ChatData extends ChatMetadata {
   messages: Array<{
     role: "user" | "assistant";
     content: string;
@@ -59,7 +59,7 @@ export class SessionStorage {
       id: chat.id,
       title: chat.title,
       createdAt: chat.createdAt,
-      updatedAt: Date.now(),
+      updatedAt: chat.updatedAt,
       sessionId: chat.sessionId
     };
 
@@ -72,20 +72,21 @@ export class SessionStorage {
     await this.saveMetadata();
   }
 
-  async createChat(sessionId?: string): Promise<{ id: string; title: string }> {
+  async createChat(sessionId?: string): Promise<{ id: string; title: string; createdAt: number }> {
+    const now = Date.now();
     const id = this.generateId();
     const title = `Chat ${new Date().toLocaleDateString()}`;
     const chat: ChatData = {
       id,
       title,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      createdAt: now,
+      updatedAt: now,
       sessionId,
       messages: []
     };
 
     await this.saveChat(chat);
-    return { id, title };
+    return { id, title, createdAt: chat.createdAt };
   }
 
   async loadChat(id: string): Promise<ChatData | null> {
@@ -111,6 +112,26 @@ export class SessionStorage {
       await this.saveMetadata();
     } catch (error) {
       console.error("Failed to delete chat:", error);
+    }
+  }
+
+  async clearAllChats(): Promise<void> {
+    try {
+      const files = fs.readdirSync(this.chatDir);
+      for (const file of files) {
+        if (!file.endsWith(".json") || file === "chats.json") {
+          continue;
+        }
+        const filePath = path.join(this.chatDir, file);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      }
+
+      this.cache = [];
+      await this.saveMetadata();
+    } catch (error) {
+      console.error("Failed to clear chats:", error);
     }
   }
 

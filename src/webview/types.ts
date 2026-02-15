@@ -96,6 +96,7 @@ export type OutgoingMessage =
   | { type: "setMode"; modeId: string }
   | { type: "setModel"; modelId: string }
   | { type: "loadChatHistory" }
+  | { type: "clearAllChats" }
   | { type: "switchChat"; chatId: string };
 
 export interface SessionMetadataEnvelope {
