@@ -34,7 +34,7 @@ async function buildExtension() {
 async function buildWebview() {
   const options = {
     ...shared,
-    entryPoints: ["src/webview/main.ts"],
+    entryPoints: ["src/webview/main.tsx"],
     outdir: "dist/webview",
     platform: "browser",
     format: "iife",

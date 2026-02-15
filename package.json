@@ -2,7 +2,7 @@
   "name": "opencode-acp-chat",
   "displayName": "OpenCode ACP Chat",
   "description": "Pleasant ACP chat client for OpenCode in VS Code",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publisher": "aasm3535",
   "license": "MIT",
   "icon": "resources/icon.png",
@@ -178,10 +178,15 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.14.1",
-    "marked": "^17.0.2"
+    "lucide-react": "^0.564.0",
+    "marked": "^17.0.2",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "@types/vscode": "1.105.0",
     "@vscode/vsce": "^3.7.1",
     "esbuild": "^0.27.3",

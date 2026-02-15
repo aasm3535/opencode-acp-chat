@@ -3,6 +3,7 @@
     "target": "ES2022",
     "module": "CommonJS",
     "moduleResolution": "Node",
+    "jsx": "react-jsx",
     "lib": ["ES2022", "DOM"],
     "strict": true,
     "noImplicitAny": true,
@@ -12,5 +13,5 @@
     "types": ["node", "vscode"],
     "baseUrl": "."
   },
-  "include": ["src/**/*.ts", "esbuild.js"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "esbuild.js"]
 }

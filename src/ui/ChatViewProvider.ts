@@ -78,14 +78,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   public async connect(): Promise<void> {
     try {
       await this.acp.connect();
+
       if (!this.currentChatId) {
         const { id, title } = await this.storage.createChat(this.acp.currentSessionId ?? undefined);
         this.currentChatId = id;
         this.chatTitle = title;
         this.chatMessages = [];
-      } else if (!this.acp.currentSessionId) {
+      }
+
+      if (!this.acp.currentSessionId) {
         await this.acp.newSession();
       }
+
       this.post({ type: "connected", sessionId: this.acp.currentSessionId });
       this.post({ type: "chatLoaded", chatId: this.currentChatId, title: this.chatTitle });
     } catch (error) {
@@ -377,53 +381,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     <title>OpenCode ACP Chat</title>
   </head>
   <body>
-    <div id="app">
-      <div id="chatHeader" class="chat-header">
-        <span id="chatsLink" class="chats-link">View chats</span>
-      </div>
-      <main id="messages" class="messages"></main>
-
-      <form id="composer" class="composer" novalidate>
-        <div class="input-shell">
-          <textarea id="promptInput" rows="1" placeholder="Ask anything, @ context, / commands"></textarea>
-
-          <div class="input-footer">
-            <div class="selector-row">
-              <div class="dropdown mode-dropdown" id="modeDropdown">
-                <button id="modeTrigger" class="dropdown-trigger mode-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
-                  <span class="trigger-main">
-                    <span id="modeGlyph" class="mode-glyph" aria-hidden="true"></span>
-                    <span id="modeValue">Build</span>
-                  </span>
-                  <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="m6 9 6 6 6-9"></path>
-                  </svg>
-                </button>
-                <div id="modeMenu" class="dropdown-menu" role="listbox" aria-label="Mode"></div>
-              </div>
-
-              <div class="dropdown model-dropdown" id="modelDropdown">
-                <button id="modelTrigger" class="dropdown-trigger model-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
-                  <span class="model-label">Model</span>
-                  <span id="modelValue" class="model-value">auto</span>
-                  <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="m6 9 6 6 6-9"></path>
-                  </svg>
-                </button>
-                <div id="modelMenu" class="dropdown-menu model-menu" role="listbox" aria-label="Model"></div>
-              </div>
-            </div>
-
-            <button id="sendBtn" class="send-btn" type="submit" aria-label="Send">
-              <svg class="send-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 21V3"></path>
-                <path d="m5 10 7-7 7 7"></path>
-              </svg>
-            </button>
-          </div>
-        </div>
-      </form>
-    </div>
+    <div id="root"></div>
     <script src="${scriptUri}"></script>
   </body>
 </html>`;
